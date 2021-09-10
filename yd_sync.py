@@ -1,12 +1,46 @@
 import requests
 from time import sleep
 import configparser
+import os
 import client_data
+
+config_file = 'config.ini'
+
+
+def gen_default_device_info():
+    from socket import gethostname
+    from platform import system
+    from uuid import uuid4
+    res = dict()
+    res['device_name'] = f"{system()}.{gethostname()}"
+    res['device_id'] = str(uuid4())
+    return res
+
+
+def get_device_info():
+    default_dev_info = gen_default_device_info()
+    config = configparser.ConfigParser()
+    if os.path.isfile(config_file):
+        config.read(config_file)
+    # если какого либо значения нет в конфиге то он генерируется
+    # и записывается в конфигурационный файл
+    if 'device' not in config.sections():
+        config['device'] = dict()
+    for key in default_dev_info:
+        if key not in config['device'].keys():
+            config['device'][key] = default_dev_info[key]
+    # запись данных
+    with open(config_file, 'w') as configfile:
+        config.write(configfile)
+    return config['device']
 
 
 def get_token():
+    dev_info = get_device_info()
     url = "https://oauth.yandex.ru/device/code"
-    data = {"client_id": client_data.client_id, }
+    data = {"client_id": client_data.client_id,
+            "device_id": dev_info["device_id"],
+            "device_name": dev_info["device_name"]}
     res = requests.post(url, data=data)
     if res.headers['Content-Type'] != 'application/json':
         return False
