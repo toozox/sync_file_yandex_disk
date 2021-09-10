@@ -5,6 +5,7 @@ import os
 import client_data
 
 config_file = 'config.ini'
+passwd_file = 'passwd'
 
 
 def gen_default_device_info():
@@ -43,7 +44,7 @@ def get_token():
             "device_name": dev_info["device_name"]}
     res = requests.post(url, data=data)
     if res.headers['Content-Type'] != 'application/json':
-        return False
+        return None
     res_json = res.json()
     user_code = res_json['user_code']
     device_code = res_json['device_code']
@@ -76,17 +77,22 @@ def save_token(token):
     config['tokens'] = {'access_token': token['access_token'],
                         'refresh_token': token['refresh_token']
                         }
-    with open('passwd', 'w') as configfile:
+    with open(passwd_file, 'w') as configfile:
         config.write(configfile)
 
 
 def main():
-    token = get_token()
-    if not token:
-        print("Не удалось получить токен")
-        return
+    if not os.path.isfile(passwd_file):
+        tokens = get_token()
+        if not tokens:
+            print("Не удалось получить токен")
+            return
+        else:
+            save_token(tokens)
     else:
-        save_token(token)
+        config = configparser.ConfigParser()
+        config.read(passwd_file)
+        tokens = dict(config['tokens'])
 
 
 if __name__ == "__main__":
