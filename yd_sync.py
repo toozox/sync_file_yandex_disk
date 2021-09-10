@@ -2,6 +2,9 @@ import requests
 from time import sleep
 import configparser
 import os
+
+import webdav.client
+
 import client_data
 
 config_file = 'config.ini'
@@ -81,6 +84,29 @@ def save_token(token):
         config.write(configfile)
 
 
+def sync_file(auth_token):
+    options = {
+        'webdav_hostname': "https://webdav.yandex.ru",
+        'webdav_token': auth_token
+    }
+    client = webdav.client.Client(options)
+    if not client.check():
+        print('Ошибка авторизации')
+        return
+    else:
+        print('Успешная авторизация')
+
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    local_path = config['file']['local_path']
+    remote_path = config['file']['remote_path']
+    if not os.path.isfile(local_path):
+        print('Получение файла из облака')
+        client.download_file(remote_path, local_path)
+        print('Файл получен')
+        exit()
+
+
 def main():
     if not os.path.isfile(passwd_file):
         tokens = get_token()
@@ -93,6 +119,9 @@ def main():
         config = configparser.ConfigParser()
         config.read(passwd_file)
         tokens = dict(config['tokens'])
+
+    sync_file(tokens['access_token'])
+
 
 
 if __name__ == "__main__":
