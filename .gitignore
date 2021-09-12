@@ -154,3 +154,8 @@ cython_debug/
 
 # Pycharm .idea
 .idea/
+zpasswd
+client_data.py
+compressed.zip
+modtime
+passwd
