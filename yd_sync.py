@@ -2,14 +2,19 @@ import requests
 from time import sleep
 import configparser
 import os
+import pyminizip
 
 import webdav.client
 
 import client_data
 
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 config_file = 'config.ini'
 passwd_file = 'passwd'
 zpasswd_file = 'zpasswd'
+zfile = 'compressed.zip'
 
 
 def gen_default_device_info():
@@ -130,12 +135,12 @@ def all_files_exists(yd_client):
 
     local_path = config['file']['local_path']
     local_file = True
-    if not os.path.isfile(local_path + '.kdbx'):
+    if not os.path.isfile(local_path):
         local_file = False
 
     remote_path = config['file']['remote_path']
     remote_zfile = True
-    if not yd_client.check(remote_path + '.zip'):
+    if not yd_client.check(remote_path):
         remote_zfile = False
 
     if not local_file and not remote_zfile:
@@ -145,11 +150,25 @@ def all_files_exists(yd_client):
 
     if not remote_zfile:
         # заархивировать файл и отправить в облако
-        pass
+        send_file(yd_client)
 
     if not local_file:
         # получить файл из облака
         pass
+
+
+# архивация файла и отправка в облако
+def send_file(yd_client):
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    local_file = config['file']['local_path']
+    remote_path = config['file']['remote_path']
+    with open(zpasswd_file) as f:
+        zpassword = f.read()
+    pyminizip.compress(local_file, None, zfile, zpassword, 3)
+    print(f"Отправка запароленного архива в облако")
+    yd_client.upload_sync(remote_path, zfile)
+    print(f"Архив успешно отправлен в облако")
 
 
 def main():
