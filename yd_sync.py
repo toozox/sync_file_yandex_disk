@@ -9,6 +9,7 @@ import client_data
 
 config_file = 'config.ini'
 passwd_file = 'passwd'
+zpasswd_file = 'zpasswd'
 
 
 def gen_default_device_info():
@@ -107,6 +108,50 @@ def sync_file(auth_token):
         exit()
 
 
+def all_files_exists(yd_client):
+    if not os.path.isfile(zpasswd_file):
+        print('Нет файла с паролем для шифрования/расшифровки архива')
+        return False
+
+    config = configparser.ConfigParser()
+    config.read(config_file)
+
+    if not 'file' in config.sections():
+        print(f"В конфиге {config_file} нет секции [file]")
+        return False
+
+    if not config['file'].get('local_path'):
+        print(f"В конфиге {config_file} нет параметра local_path")
+        return False
+
+    if not config['file'].get('remote_path'):
+        print(f"В конфиге {config_file} нет параметра remote_path")
+        return False
+
+    local_path = config['file']['local_path']
+    local_file = True
+    if not os.path.isfile(local_path + '.kdbx'):
+        local_file = False
+
+    remote_path = config['file']['remote_path']
+    remote_zfile = True
+    if not yd_client.check(remote_path + '.zip'):
+        remote_zfile = False
+
+    if not local_file and not remote_zfile:
+        print("На локальном компьютере и в облаке отсутствуют файлы для синхронизации,\n"
+              f"либо они неверно указаны в {config_file}")
+        return False
+
+    if not remote_zfile:
+        # заархивировать файл и отправить в облако
+        pass
+
+    if not local_file:
+        # получить файл из облака
+        pass
+
+
 def main():
     if not os.path.isfile(passwd_file):
         tokens = get_token()
@@ -116,12 +161,25 @@ def main():
         else:
             save_token(tokens)
     else:
-        config = configparser.ConfigParser()
-        config.read(passwd_file)
-        tokens = dict(config['tokens'])
+        saved_tokens = configparser.ConfigParser()
+        saved_tokens.read(passwd_file)
+        tokens = dict(saved_tokens['tokens'])
 
-    sync_file(tokens['access_token'])
+    options = {
+        'webdav_hostname': "https://webdav.yandex.ru",
+        'webdav_token': tokens['access_token']
+    }
+    yd_client = webdav.client.Client(options)
+    if not yd_client.check():
+        print('Ошибка авторизации')
+        return
+    else:
+        print('Успешная авторизация')
 
+    # проверка, есть ли все необходимые файлы
+    # и в облаке и на локальном компьютере
+    if not all_files_exists(yd_client):
+        return
 
 
 if __name__ == "__main__":
