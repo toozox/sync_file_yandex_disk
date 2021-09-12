@@ -4,6 +4,7 @@ import configparser
 import os
 import pyminizip
 from zipfile import ZipFile
+from datetime import datetime, timedelta
 
 import webdav.client
 
@@ -16,6 +17,7 @@ config_file = 'config.ini'
 passwd_file = 'passwd'
 zpasswd_file = 'zpasswd'
 zfile = 'compressed.zip'
+mod_time_file = 'modtime'
 
 
 def gen_default_device_info():
@@ -91,27 +93,50 @@ def save_token(token):
         config.write(configfile)
 
 
-def sync_file(auth_token):
-    options = {
-        'webdav_hostname': "https://webdav.yandex.ru",
-        'webdav_token': auth_token
-    }
-    client = webdav.client.Client(options)
-    if not client.check():
-        print('Ошибка авторизации')
-        return
-    else:
-        print('Успешная авторизация')
-
+def sync_file(yd_client):
     config = configparser.ConfigParser()
     config.read(config_file)
-    local_path = config['file']['local_path']
     remote_path = config['file']['remote_path']
-    if not os.path.isfile(local_path):
-        print('Получение файла из облака')
-        client.download_file(remote_path, local_path)
-        print('Файл получен')
-        exit()
+    local_path = config['file']['local_path']
+    remote_modified = yd_client.info(remote_path)['modified']
+    remote_modified = datetime.strptime(remote_modified, "%a, %d %b %Y %H:%M:%S %Z")
+    local_zf_modified = datetime.utcfromtimestamp(int(os.path.getmtime(zfile)))
+    with open(mod_time_file, 'r') as f:
+        saved_f_modified = int(float(f.read()))
+    f_modified = int(os.path.getmtime(local_path))
+    # если разница между удалённым архивом и локальным архивом больше
+    # одной минуты, то на сервере более свежая версия
+    if (remote_modified - local_zf_modified) > timedelta(minutes=1):
+        # если локальный файл тоже изменился (конфликт)
+        if f_modified > saved_f_modified:
+            print('Удалённая копия и локальная копия изменены,\n'
+                  'поэтому возник конфлик слияния.\n'
+                  'Как решить этот конфликт?\n'
+                  '1 Загрузить локальную копию в облако.\n'
+                  '2 Скачать удалённую копию для ручного слияния.\n'
+                  '3 Завершить работу программы\n')
+            in_var = int(input('> '))
+            if in_var == 3:
+                exit()
+            elif in_var == 1:
+                send_file(yd_client)
+            elif in_var == 2:
+                save_path = input('Введите путь, куда сохранить файл: ')
+                # скачать по пути, куда указал пользователь
+                get_file_tmp(yd_client, save_path)
+            return
+        # если локальная копия не изменилась
+        else:
+            # скачиваем версию из облака
+            get_file(yd_client)
+            return
+    # если локальная копия файла изменилась, а не сервера старая версия
+    elif f_modified > saved_f_modified:
+        # загружаем локальную копию на сервер
+        send_file(yd_client)
+        return
+
+    print("Нечего синхронизировать")
 
 
 def all_files_exists(yd_client):
@@ -152,10 +177,14 @@ def all_files_exists(yd_client):
     if not remote_zfile:
         # заархивировать файл и отправить в облако
         send_file(yd_client)
+        return
 
     if not local_file:
         # получить файл из облака
         get_file(yd_client)
+        return
+
+    return True
 
 
 # архивация файла и отправка в облако
@@ -169,7 +198,28 @@ def send_file(yd_client):
     pyminizip.compress(local_file, None, zfile, zpassword, 3)
     print(f"Отправка запароленного архива в облако")
     yd_client.upload_sync(remote_path, zfile)
+    # сохраняем время модификации файла, который отправлен в облаков
+    with open(mod_time_file, 'w') as f:
+        f.write(str(os.path.getmtime(local_file)))
     print(f"Архив успешно отправлен в облако")
+
+
+def get_file_tmp(yd_client, save_path):
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    local_file = save_path
+    remote_file = config['file']['remote_path']
+    with open('zpasswd', 'r') as f:
+        zpassword = f.read()
+
+    print("Получение файла из облака")
+    zfile = os.path.join(save_path, 'tmp.zip')
+    os.makedirs(save_path)
+    yd_client.download_file(remote_file, zfile)
+    with ZipFile(zfile) as z:
+        z.extractall(path=save_path, pwd=bytes(zpassword, 'utf-8'))
+    os.remove(zfile)
+    print("Файл успешно получен")
 
 
 def get_file(yd_client):
@@ -187,10 +237,14 @@ def get_file(yd_client):
 
     print("Получение файла из облака")
     yd_client.download_sync(remote_file, zfile)
-    # pyminizip.uncompress(zfile, zpassword, local_file, 0)
     file_dir = os.path.dirname(local_file)
     with ZipFile(zfile) as z:
         z.extractall(path=file_dir, pwd=bytes(zpassword, 'utf-8'))
+
+    # сохраняем время модификации файла
+    with open(mod_time_file, 'w') as f:
+        f.write(str(os.path.getmtime(local_file)))
+
     print("Файл успешно получен")
 
 
@@ -220,8 +274,8 @@ def main():
 
     # проверка, есть ли все необходимые файлы
     # и в облаке и на локальном компьютере
-    if not all_files_exists(yd_client):
-        return
+    if all_files_exists(yd_client):
+        sync_file(yd_client)
 
 
 if __name__ == "__main__":
