@@ -3,6 +3,7 @@ from time import sleep
 import configparser
 import os
 import pyminizip
+from zipfile import ZipFile
 
 import webdav.client
 
@@ -154,7 +155,7 @@ def all_files_exists(yd_client):
 
     if not local_file:
         # получить файл из облака
-        pass
+        get_file(yd_client)
 
 
 # архивация файла и отправка в облако
@@ -169,6 +170,28 @@ def send_file(yd_client):
     print(f"Отправка запароленного архива в облако")
     yd_client.upload_sync(remote_path, zfile)
     print(f"Архив успешно отправлен в облако")
+
+
+def get_file(yd_client):
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    local_file = config['file']['local_path']
+    remote_file = config['file']['remote_path']
+    with open('zpasswd', 'r') as f:
+        zpassword = f.read()
+
+    # делаем бэкап сущ. файла, если он есть
+    # TODO сделать функционал бэкапа
+    if os.path.isfile(local_file):
+        pass
+
+    print("Получение файла из облака")
+    yd_client.download_sync(remote_file, zfile)
+    # pyminizip.uncompress(zfile, zpassword, local_file, 0)
+    file_dir = os.path.dirname(local_file)
+    with ZipFile(zfile) as z:
+        z.extractall(path=file_dir, pwd=bytes(zpassword, 'utf-8'))
+    print("Файл успешно получен")
 
 
 def main():
